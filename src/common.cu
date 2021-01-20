@@ -418,9 +418,9 @@ testResult_t BenchTime(struct threadArgs* args, ncclDataType_t type, ncclRedOp_t
 
   auto delta = std::chrono::high_resolution_clock::now() - start;
   double deltaSec = std::chrono::duration_cast<std::chrono::duration<double>>(delta).count();
-  PRINT("deltaSec_1: %f\n", deltaSec)
+  PRINT("deltaSec_1: %f\n", deltaSec);
   deltaSec = deltaSec/(iters*agg_iters);
-  PRINT("deltaSec_2: %f\n", deltaSec)
+  PRINT("deltaSec_2: %f\n", deltaSec);
 
   double algBw, busBw;
   args->collTest->getBw(count, wordSize(type), deltaSec, &algBw, &busBw, args->nProcs*args->nThreads*args->nGpus);
@@ -572,6 +572,11 @@ testResult_t AllocateBuffs(void **sendbuff, size_t sendBytes, void **recvbuff, s
 testResult_t run(); // Main function
 
 int main(int argc, char* argv[]) {
+  // 获取当前时间戳
+  std::chrono::system_clock::duration d = std::chrono::system_clock::now().time_since_epoch();
+  std::chrono::milliseconds mil = std::chrono::duration_cast<std::chrono::milliseconds>(d);
+  printf("MAIN 时间戳: %lld\n", mil.count());
+
   // Make sure everyline is flushed so that we see the progress of the test
   setlinebuf(stdout);
 
@@ -697,7 +702,7 @@ int main(int argc, char* argv[]) {
     }
   }
 #ifdef MPI_SUPPORT
-  printf("MPI_SUPPORT\n")
+  printf("MPI_SUPPORT\n");
   MPI_Init(&argc, &argv);
 #endif
   return run();
@@ -708,10 +713,10 @@ testResult_t run() {
   int localRank = 0;
   char hostname[1024];
   getHostName(hostname, 1024);
-  PRINT("%s\n", hostname)
+  PRINT("%s\n", hostname);
 
 #ifdef MPI_SUPPORT
-  PRINT("MPI_SUPPORT\n")
+  PRINT("MPI_SUPPORT\n");
   MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
   MPI_Comm_rank(MPI_COMM_WORLD, &proc);
   uint64_t hostHashs[nProcs];
