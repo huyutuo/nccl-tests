@@ -52,6 +52,7 @@ void AllGatherGetBw(size_t count, int typesize, double sec, double* algBw, doubl
 
   *algBw = baseBw;
   double factor = ((double)(nranks - 1))/((double)nranks);
+  PRINT("factor: %f", factor);
   *busBw = baseBw * factor;
 }
 

@@ -418,7 +418,9 @@ testResult_t BenchTime(struct threadArgs* args, ncclDataType_t type, ncclRedOp_t
 
   auto delta = std::chrono::high_resolution_clock::now() - start;
   double deltaSec = std::chrono::duration_cast<std::chrono::duration<double>>(delta).count();
+  PRINT("deltaSec_1: %f\n", deltaSec)
   deltaSec = deltaSec/(iters*agg_iters);
+  PRINT("deltaSec_2: %f\n", deltaSec)
 
   double algBw, busBw;
   args->collTest->getBw(count, wordSize(type), deltaSec, &algBw, &busBw, args->nProcs*args->nThreads*args->nGpus);
@@ -429,6 +431,7 @@ testResult_t BenchTime(struct threadArgs* args, ncclDataType_t type, ncclRedOp_t
   static __thread int rep = 0;
   rep++;
   if (datacheck) {
+      PRINT("datacheck\n");
       // Initialize sendbuffs, recvbuffs and expected
       TESTCHECK(args->collTest->initData(args, type, op, root, rep, in_place));
 
@@ -485,6 +488,7 @@ void setupArgs(size_t size, ncclDataType_t type, struct threadArgs* args) {
   args->recvInplaceOffset = recvInplaceOffset * wordSize(type);
 }
 
+ // 每个操作都会产生一个 testEngine， 然后执行TimeTest操作
 testResult_t TimeTest(struct threadArgs* args, ncclDataType_t type, const char* typeName, ncclRedOp_t op, const char* opName, int root) {
   // Warm-up for large size
   setupArgs(args->maxbytes, type, args);
@@ -501,6 +505,7 @@ testResult_t TimeTest(struct threadArgs* args, ncclDataType_t type, const char* 
   TESTCHECK(completeColl(args));
 
   // Benchmark
+  // in_place 与 out-of place都执行一遍
   for (size_t size = args->minbytes; size<=args->maxbytes; size = ((args->stepfactor > 1) ? size*args->stepfactor : size+args->stepbytes)) {
       setupArgs(size, type, args);
       print_line_header(max(args->sendBytes, args->expectedBytes), args->nbytes / wordSize(type), typeName, opName, root);
@@ -512,6 +517,7 @@ testResult_t TimeTest(struct threadArgs* args, ncclDataType_t type, const char* 
 }
 
 testResult_t threadRunTests(struct threadArgs* args) {
+  PRINT("run threadRunTests\n");
   // Set device to the first of our GPUs. If we don't do that, some operations
   // will be done on the current GPU (by default : 0) and if the GPUs are in
   // exclusive mode those operations will fail.
@@ -691,6 +697,7 @@ int main(int argc, char* argv[]) {
     }
   }
 #ifdef MPI_SUPPORT
+  printf("MPI_SUPPORT\n")
   MPI_Init(&argc, &argv);
 #endif
   return run();
@@ -701,13 +708,16 @@ testResult_t run() {
   int localRank = 0;
   char hostname[1024];
   getHostName(hostname, 1024);
+  PRINT("%s\n", hostname)
 
 #ifdef MPI_SUPPORT
+  PRINT("MPI_SUPPORT\n")
   MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
   MPI_Comm_rank(MPI_COMM_WORLD, &proc);
   uint64_t hostHashs[nProcs];
   hostHashs[proc] = getHostHash(hostname);
   MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, hostHashs, sizeof(uint64_t), MPI_BYTE, MPI_COMM_WORLD);
+  PRINT("nProcs %I64d\n", nProcs);
   for (int p=0; p<nProcs; p++) {
     if (p == proc) break;
     if (hostHashs[p] == hostHashs[proc]) localRank++;
@@ -725,6 +735,7 @@ testResult_t run() {
 #define MAX_LINE 2048
   char line[MAX_LINE];
   int len = 0;
+  PRINT("nThreads: %d, nGpus: %d\n", nThreads, nGpus);
   for (int i=0; i<nThreads*nGpus; i++) {
     int cudaDev = localRank*nThreads*nGpus+i;
     int rank = proc*nThreads*nGpus+i;
