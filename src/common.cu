@@ -42,10 +42,10 @@ static int parallel_init = 0;
 static int blocking_coll = 0;
 
 
-void get_now_time(string message) {
+void get_now_time(std::string message) {
   std::chrono::system_clock::duration d = std::chrono::system_clock::now().time_since_epoch();
   std::chrono::milliseconds mil = std::chrono::duration_cast<std::chrono::milliseconds>(d);
-  std::cout << message << "-时间戳 : " << mil.cout() << std::endl;
+  printf("%s-时间戳 : %lld\n", message.c_str(), mil.count());
 }
 
 double parsesize(char *value) {
