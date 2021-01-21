@@ -10,6 +10,7 @@
 #include <getopt.h>
 #include <libgen.h>
 #include "cuda.h"
+#include <string>
 
 #if NCCL_MAJOR >= 2
 ncclDataType_t test_types[ncclNumTypes] = {ncclInt8, ncclUint8, ncclInt32, ncclUint32, ncclInt64, ncclUint64, ncclHalf, ncclFloat, ncclDouble};
@@ -39,6 +40,13 @@ static int nccltype = ncclFloat;
 static int ncclroot = 0;
 static int parallel_init = 0;
 static int blocking_coll = 0;
+
+
+void get_now_time(string message) {
+  std::chrono::system_clock::duration d = std::chrono::system_clock::now().time_since_epoch();
+  std::chrono::milliseconds mil = std::chrono::duration_cast<std::chrono::milliseconds>(d);
+  std::cout << message << "-时间戳 : " << mil.cout() << std::endl;
+}
 
 double parsesize(char *value) {
     long long int units;
@@ -573,9 +581,7 @@ testResult_t run(); // Main function
 
 int main(int argc, char* argv[]) {
   // 获取当前时间戳
-  std::chrono::system_clock::duration d = std::chrono::system_clock::now().time_since_epoch();
-  std::chrono::milliseconds mil = std::chrono::duration_cast<std::chrono::milliseconds>(d);
-  printf("MAIN 时间戳: %lld\n", mil.count());
+  get_now_time("main 入口");
 
   // Make sure everyline is flushed so that we see the progress of the test
   setlinebuf(stdout);
@@ -709,19 +715,20 @@ int main(int argc, char* argv[]) {
 }
 
 testResult_t run() {
+  get_now_time("testResult_t");
   int nProcs = 1, proc = 0;
   int localRank = 0;
   char hostname[1024];
   getHostName(hostname, 1024);
-  PRINT("%s\n", hostname);
 
 #ifdef MPI_SUPPORT
-  PRINT("MPI_SUPPORT\n");
   MPI_Comm_size(MPI_COMM_WORLD, &nProcs);
   MPI_Comm_rank(MPI_COMM_WORLD, &proc);
   uint64_t hostHashs[nProcs];
   hostHashs[proc] = getHostHash(hostname);
+  get_now_time("MPI_Allgather MPI_IN_PLACE start");
   MPI_Allgather(MPI_IN_PLACE, 0, MPI_DATATYPE_NULL, hostHashs, sizeof(uint64_t), MPI_BYTE, MPI_COMM_WORLD);
+  get_now_time("MPI_Allgather MPI_IN_PLACE end");
   PRINT("nProcs %I64d\n", nProcs);
   for (int p=0; p<nProcs; p++) {
     if (p == proc) break;
@@ -753,7 +760,10 @@ testResult_t run() {
 #if MPI_SUPPORT
   char *lines = (proc == 0) ? (char *)malloc(nProcs*MAX_LINE) : NULL;
   // Gather all output in rank order to root (0)
+  get_now_time("MPI_Gather line start");
   MPI_Gather(line, MAX_LINE, MPI_BYTE, lines, MAX_LINE, MPI_BYTE, 0, MPI_COMM_WORLD);
+  get_now_time("MPI_Gather line end");
+
   if (proc == 0) {
     for (int p = 0; p < nProcs; p++)
       PRINT("%s", lines+MAX_LINE*p);
@@ -768,7 +778,9 @@ testResult_t run() {
     NCCLCHECK(ncclGetUniqueId(&ncclId));
   }
 #ifdef MPI_SUPPORT
+  get_now_time("MPI_Bcast ncclId start");
   MPI_Bcast(&ncclId, sizeof(ncclId), MPI_BYTE, 0, MPI_COMM_WORLD);
+  get_now_time("MPI_Bcast ncclId end");
 #endif
   cudaStream_t streams[nGpus*nThreads];
   void* sendbuffs[nGpus*nThreads];
@@ -778,13 +790,16 @@ testResult_t run() {
 
   ncclTestEngine.getBuffSize(&sendBytes, &recvBytes, (size_t)maxBytes, (size_t)nProcs*nGpus*nThreads);
 
+  get_now_time("AllocateBuffs start");
   for (int i=0; i<nGpus*nThreads; i++) {
     CUDACHECK(cudaSetDevice(localRank*nThreads*nGpus+i));
     AllocateBuffs(sendbuffs+i, sendBytes, recvbuffs+i, recvBytes, expected+i, (size_t)maxBytes, nProcs*nThreads*nGpus);
     CUDACHECK(cudaStreamCreateWithFlags(streams+i, cudaStreamNonBlocking));
   }
+  get_now_time("AllocateBuffs end");
 
   //if parallel init is not selected, use main thread to initialize NCCL
+  get_now_time("init nccl start");
   ncclComm_t* comms = (ncclComm_t*)malloc(sizeof(ncclComm_t)*nThreads*nGpus);
   if (!parallel_init) {
      if (nProcs == 1) {
@@ -800,6 +815,7 @@ testResult_t run() {
        NCCLCHECK(ncclGroupEnd());
      }
   }
+  get_now_time("init nccl end");
 
   int errors[nThreads];
   double bw[nThreads];
@@ -819,7 +835,8 @@ testResult_t run() {
 
   struct testThread threads[nThreads];
   memset(threads, 0, sizeof(struct testThread)*nThreads);
-
+  
+  get_now_time("thread run start");
   for (int t=nThreads-1; t>=0; t--) {
     threads[t].args.minbytes=minBytes;
     threads[t].args.maxbytes=maxBytes;
@@ -858,6 +875,7 @@ testResult_t run() {
     else
       TESTCHECK(threads[t].func(&threads[t].args));
   }
+  
 
   // Wait for other threads and accumulate stats and errors
   for (int t=nThreads-1; t>=0; t--) {
@@ -869,9 +887,12 @@ testResult_t run() {
       bw_count[0] += bw_count[t];
     }
   }
+  get_now_time("thread run end");
 
 #ifdef MPI_SUPPORT
+  get_now_time("MPI_ALLreduce errors start");
   MPI_Allreduce(MPI_IN_PLACE, &errors[0], 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
+  get_now_time("MPI_ALLreduce errors end");
 #endif
 
   if (!parallel_init) {
@@ -880,13 +901,16 @@ testResult_t run() {
     free(comms);
   }
 
+  
   // Free off CUDA allocated memory
+  get_now_time("Free CUDA memory start");
   for (int i=0; i<nGpus*nThreads; i++) {
     CUDACHECK(cudaFree(sendbuffs[i]));
     CUDACHECK(cudaFree(recvbuffs[i]));
     CUDACHECK(cudaFree(expected[i]));
   }
   CUDACHECK(cudaFreeHost(delta));
+  get_now_time("Free CUDA memory end");
 
   char* str = getenv("NCCL_TESTS_MIN_BW");
   double check_avg_bw = str ? atof(str) : -1;
@@ -895,12 +919,15 @@ testResult_t run() {
   PRINT("# Out of bounds values : %d %s\n", errors[0], errors[0] ? "FAILED" : "OK");
   PRINT("# Avg bus bandwidth    : %g %s\n", bw[0], check_avg_bw == -1 ? "" : (bw[0] < check_avg_bw*(0.9) ? "FAILED" : "OK"));
   PRINT("#\n");
+
+  get_now_time("end-work start");
 #ifdef MPI_SUPPORT
   MPI_Finalize();
 #endif
 
   // 'cuda-memcheck --leak-check full' requires this
   cudaDeviceReset();
+  get_now_time("end-work end");
 
   if (errors[0] || bw[0] < check_avg_bw*(0.9))
     exit(EXIT_FAILURE);
